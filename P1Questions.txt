@@ -1,9 +1,9 @@
 Selene De Luna
 
-1. About 2 hours
-2. Thought/Design: 
-   Programming: 
-   Debugging:
-   Total:
-3. 
+1. About 3 hours
+2. Thought/Design: 1
+   Programming: 1
+   Debugging:3
+   Total:4
+3. Really off
 

@@ -29,11 +29,14 @@ import java.util.TimeZone;
 
 public class WebWorker implements Runnable
 {
-String fileName;
+
 private Socket socket;
 int code;
-Date d = new Date();
-DateFormat dF = DateFormat.getDateTimeInstance();
+private boolean faviconSet;
+private String mimeType;
+String userDirect = System.getProperty("user.dir");
+
+
 /**
 * Constructor: must have a valid open socket
 **/
@@ -41,6 +44,32 @@ public WebWorker(Socket s)
 {
    socket = s;
 }
+
+public void setMimeType(String type){
+   this.mimeType = type;
+}//set
+
+public String getMimeType(){
+   return this.mimeType;
+}
+
+public boolean getFav(){
+   return this.faviconSet;
+}
+
+public void setFav(boolean x){
+   this.faviconSet = x;
+}//set
+
+public String getDate(){
+   String dateString;
+   Date date = new Date();
+   DateFormat dateF = DateFormat.getDateTimeInstance();
+   dateF.setTimeZone( TimeZone.getTimeZone("MST") );
+   dateString = dateF.format(date);
+   return dateString;
+}//get date
+
 
 /**
 * Worker thread starting point. Each worker handles just one HTTP 
@@ -57,16 +86,34 @@ public void run()
       
       String location = readHTTPRequest(is);
       
-      writeHTTPHeader(os, "text/html", location);
-      writeContent(os, location);
+      if(code == 200){
+         if( location.contains(".html") )
+            setMimeType("test/html");
+         else if( location.contains(".gif") )
+            setMimeType("image/gif");
+         else if( location.contains(".jpeg") || location.contains(".jpg"))
+            setMimeType("image/jpeg");
+         else if( location.contains(".png") )
+            setMimeType("image/png");
+         else
+            setMimeType("text/html");  
+      }//if
+      else
+         mimeType = "text/html";
+      
+      writeHTTPHeader(os, getMimeType(), location);
+      writeContent(os, getMimeType(), location);
       os.flush();
       socket.close();
+      
    } catch (Exception e) {
       System.err.println("Output error: " + e);
    }
+   
    System.err.println("Done handling connection.");
    return;
 }
+
 
 /**
 * Read the HTTP request header.
@@ -82,23 +129,29 @@ private String readHTTPRequest(InputStream is)
          while ( !r.ready() ) Thread.sleep(1);
          line = r.readLine();
          
-         if(line.contains("GET") ){
+         if(line.contains("GET ") ){
             local = line.substring(4);
             for(int i = 0; i < local.length(); i++){
                if(local.charAt(i) == ' ')
                   local = local.substring(0,i);
             }//for
-            local = "." + local;
-            System.err.println("Path collected: " + local);
          }//if
          
          System.err.println("Request line: ("+ line +")");
          if (line.length()==0) break;
+         
       } catch (Exception e) {
          System.err.println("Request error: " + e);
          break;
       }
    }
+   
+   File file = new File(userDirect+local);
+   if(file.exists())
+      code = 200;
+   else
+      code = 404;
+   
    return local;
 }
 
@@ -109,24 +162,23 @@ private String readHTTPRequest(InputStream is)
 **/
 private void writeHTTPHeader(OutputStream os, String contentType, String location) throws Exception
 {   
+   String local = userDirect + location;
+
    try{
-      File x = new File(location);
-      if( x.exists() ){
+      FileReader x = new FileReader(local);
       os.write("HTTP/1.1 200 OK\n".getBytes());
-       code = 200;
-      }//if
-   }//try  
+      System.out.println( local + " succesful");
+   }//try
+     
    catch(FileNotFoundException fnfe){
       os.write("HTTP/1.1 404 ERROR\n".getBytes());
-      System.err.println("ERORR: File " + location + " does not exixt");
-      code = 404;
    }   
       os.write("Date: ".getBytes());
-      os.write((dF.format(d)).getBytes());
+      os.write(getDate().getBytes());
       os.write("\n".getBytes());
       os.write("Server: Sele's very own server\n".getBytes());
       //os.write("Last-Modified: Wed, 08 Jan 2003 23:11:55 GMT\n".getBytes());
-      os.write("Content-Length: 438\n".getBytes()); 
+      //os.write("Content-Length: 438\n".getBytes()); 
       os.write("Connection: close\n".getBytes());
       os.write("Content-Type: ".getBytes());
       os.write(contentType.getBytes());
@@ -140,28 +192,59 @@ private void writeHTTPHeader(OutputStream os, String contentType, String locatio
 * be done after the HTTP header has been written out.
 * @param os is the OutputStream object to write to
 **/
-private void writeContent(OutputStream os, String location) throws Exception
+private void writeContent(OutputStream os, String contType, String location) throws Exception
 {
    String content = "";
-   String pathCopy = location;
-    
-   try{
-      File fileName = new File(pathCopy);
-      BufferedReader inBuffer = new BufferedReader(new FileReader(fileName));
+   String path = userDirect + location;
+   
+   if(contType.contains("text/html") ) { 
+      try{
+         File fileName = new File(path);
+         BufferedReader inBuffer = new BufferedReader(new FileReader(fileName));
 
-      while( (content = inBuffer.readLine() )  != null){
-         if(content.contains("<cs371server>"))
-            content += dF.format(d);
-         else if (content.contains("<cs371server>"))
-            content += "This is my ID TAG";
-         os.write(content.getBytes());
-         os.write("\n".getBytes());
-      }//while
-    }//try  
+         while( (content = inBuffer.readLine() )  != null){
+            if(content.contains("<cs371date>"))
+               content = getDate();
+            if (content.contains("<cs371server>"))
+               content = "This is my ID TAG";
+            os.write(content.getBytes());
+            os.write("\n".getBytes());
+         }//while
+       }//try 
+   
      catch(FileNotFoundException fnfe){
       os.write("<h1><b>404: Not Found</b></h1>".getBytes());
+      os.write("The page you are looking for does not exist!:)".getBytes());
+      os.write("/nUnable to locate: ".getBytes());
+      os.write(path.getBytes());
+     }//catch
+   }//if
+   
+   else if(contType.contains("image") ){
+      try{
+         File file = new File(path);
+         int fLength = (int) file.length();
+         FileInputStream input = new FileInputStream(file);
+         
+         byte allBytes[] = new byte[fLength];
+         
+         input.read(allBytes);
+         os.write(allBytes);
+      }//try
+      catch(FileNotFoundException fnfe){
+         System.err.println("ERROR: Image not found " + path);
+      }//catch
+   }//else if
+   else{
+      os.write("<h1><b>404: Not Found</b></h1>".getBytes());
       os.write("The page you are looking for does not exist!".getBytes());
-     }
-   }
+      os.write("/nUnable to locate: ".getBytes());
+      os.write(path.getBytes());   }//else
+   
+}//write
+
+
+
+
 
 } // end class
